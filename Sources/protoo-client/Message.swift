@@ -25,20 +25,40 @@
 
 import Foundation
 
-public struct Message: Codable {
-    public enum MessageError: Error {
+struct Message: Codable {
+    enum MessageError: Error {
         case invalidType
     }
 
-    public enum MessageType {
-        case request(method: String)
-        case response(result: MessageResult)
+    enum MessageType {
+        case request(MessageRequest)
+        case response(MessageResponse)
         case notification(method: String)
     }
 
-    public enum MessageResult {
-        case success
-        case error(code: Int, reason: String?)
+    struct MessageRequest {
+        let method: String
+        let id: UInt32
+
+        init(method: String, id: UInt32 = .random(in: 0..<UInt32.max)) {
+            self.method = method
+            self.id = id
+        }
+    }
+
+    struct MessageResponse {
+        enum MessageResult {
+            case success
+            case error(code: Int, reason: String?)
+        }
+
+        let result: MessageResult
+        let id: UInt32
+
+        init(result: MessageResult, id: UInt32) {
+            self.result = result
+            self.id = id
+        }
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -53,21 +73,24 @@ public struct Message: Codable {
     }
 
     let type: MessageType
-    let id: Int
 
-    public init(from decoder: any Decoder) throws {
+    init(type: MessageType) {
+        self.type = type
+    }
+
+    init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let type: MessageType
 
         if let request = try container.decodeIfPresent(Bool.self, forKey: .request), request {
-            type = .request(method: try container.decode(String.self, forKey: .method))
+            type = .request(.init(method: try container.decode(String.self, forKey: .method), id: try container.decode(UInt32.self, forKey: .id)))
         } else if let response = try container.decodeIfPresent(Bool.self, forKey: .response), response {
-            let ok = try container.decode(Bool.self, forKey: .ok)
+            let ok = try container.decodeIfPresent(Bool.self, forKey: .ok) ?? false
 
             if ok {
-                type = .response(result: .success)
+                type = .response(.init(result: .success, id: try container.decode(UInt32.self, forKey: .id)))
             } else {
-                type = .response(result: .error(code: try container.decode(Int.self, forKey: .errorCode), reason: try container.decodeIfPresent(String.self, forKey: .errorReason)))
+                type = .response(.init(result: .error(code: try container.decode(Int.self, forKey: .errorCode), reason: try container.decodeIfPresent(String.self, forKey: .errorReason)), id: try container.decode(UInt32.self, forKey: .id)))
             }
         } else if let notification = try container.decodeIfPresent(Bool.self, forKey: .notification), notification {
             type = .notification(method: try container.decode(String.self, forKey: .method))
@@ -76,19 +99,19 @@ public struct Message: Codable {
         }
 
         self.type = type
-        self.id = try container.decode(Int.self, forKey: .id)
     }
 
-    public func encode(to encoder: any Encoder) throws {
+    func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
 
         switch type {
-        case .request(let method):
+        case .request(let request):
             try container.encode(true, forKey: .request)
-            try container.encode(method, forKey: .method)
+            try container.encode(request.method, forKey: .method)
+            try container.encode(request.id, forKey: .id)
 
-        case .response(let result):
-            switch result {
+        case .response(let response):
+            switch response.result {
             case .success:
                 try container.encode(true, forKey: .ok)
 
@@ -98,11 +121,40 @@ public struct Message: Codable {
                 try container.encodeIfPresent(reason, forKey: .errorReason)
             }
 
+            try container.encode(true, forKey: .response)
+            try container.encode(response.id, forKey: .id)
+
         case .notification(let method):
             try container.encode(true, forKey: .notification)
             try container.encode(method, forKey: .method)
         }
+    }
+}
 
-        try container.encode(id, forKey: .id)
+struct DataMessage<DataType: Codable>: Codable {
+    let message: Message
+    let data: DataType
+
+    private enum CodingKeys: String, CodingKey {
+        case data
+    }
+
+    init(message: Message, data: DataType) {
+        self.message = message
+        self.data = data
+    }
+
+    init(from decoder: any Decoder) throws {
+        self.message = try Message(from: decoder)
+
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.data = try container.decode(DataType.self, forKey: .data)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        try message.encode(to: encoder)
+
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(data, forKey: .data)
     }
 }
