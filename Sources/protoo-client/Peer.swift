@@ -156,7 +156,7 @@ public final actor Peer {
             return try .init(message: .init(type: .response(.init(result: .error(code: code, reason: reason), id: request.id))))
         }
 
-        public static func failure(for requestID: UInt32, code: Int, reason: String?) throws -> Self {
+        static func failure(for requestID: UInt32, code: Int, reason: String?) throws -> Self {
             return try .init(message: .init(type: .response(.init(result: .error(code: code, reason: reason), id: requestID))))
         }
 
