@@ -197,12 +197,12 @@ public final actor Peer {
 
     // MARK: - Builder
 
-    public typealias OpenHandler = @Sendable () -> Void
-    public typealias FailedHandler = @Sendable (_ currentAttempt: Int, _ error: Swift.Error) -> Void
-    public typealias DisconnectedHandler = @Sendable () -> Void
-    public typealias CloseHandler = @Sendable () -> Void
+    public typealias OpenHandler = @Sendable () async -> Void
+    public typealias FailedHandler = @Sendable (_ currentAttempt: Int, _ error: Swift.Error) async -> Void
+    public typealias DisconnectedHandler = @Sendable () async -> Void
+    public typealias CloseHandler = @Sendable () async -> Void
     public typealias RequestHandler = @Sendable (_ request: Request) async throws -> Response
-    public typealias NotificationHandler = @Sendable (_ notification: Notification) -> Void
+    public typealias NotificationHandler = @Sendable (_ notification: Notification) async -> Void
 
     struct Handlers {
         var open: OpenHandler?
@@ -275,7 +275,7 @@ public final actor Peer {
         self.handlers = handlers
     }
 
-    public func open() async throws {
+    public func open() throws {
         guard case .closed = state else {
             return
         }
@@ -305,20 +305,20 @@ public final actor Peer {
                 task.cancel()
             }
 
-            handlers.close?()
+            await handlers.close?()
             state = .closed
 
         case .open:
-            handlers.open?()
+            await handlers.open?()
 
         case .message(let message):
             handle(message: message)
 
         case .disconnect:
-            handlers.disconnected?()
+            await handlers.disconnected?()
 
         case .fail(let currentAttempt, let error):
-            handlers.failed?(currentAttempt, error)
+            await handlers.failed?(currentAttempt, error)
         }
     }
 
@@ -341,9 +341,10 @@ public final actor Peer {
 
             case .notification:
                 if let notificationHandler = handlers.notification, let notification = try? Notification(buffer: text) {
-                    notificationHandler(notification)
+                    Task {
+                        await notificationHandler(notification)
+                    }
                 }
-                break
             }
         }
     }
@@ -363,7 +364,7 @@ public final actor Peer {
             } catch {
                 response = try? .failure(for: request.id, code: 500, reason: error.localizedDescription)
             }
-            
+
             if let response, case .open(let connection, _) = state {
                 connection.writer.write(.text(response.buffer))
             }

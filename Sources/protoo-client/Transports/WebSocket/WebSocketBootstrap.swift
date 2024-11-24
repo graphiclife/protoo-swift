@@ -89,9 +89,18 @@ struct WebSocketBootstrap {
         let upgradeResult: EventLoopFuture<UpgradeResult>
 
         if scheme == "wss" {
-            let configuration = TLSConfiguration.makeClientConfiguration()
+            var configuration = TLSConfiguration.makeClientConfiguration()
+
+            if let reject = ProcessInfo.processInfo.environment["PROTOO_TLS_REJECT_UNAUTHORIZED"] {
+                if reject == "0" || reject.lowercased() == "false" {
+                    configuration.certificateVerification = .none
+                }
+            }
+
             let sslContext = try NIOSSLContext(configuration: configuration)
-            let bootstrap = try NIOClientTCPBootstrap(ClientBootstrap(group: group), tls: NIOSSLClientTLSProvider(context: sslContext, serverHostname: host))
+            let isSocketAddress = (try? SocketAddress(ipAddress: host, port: 0)) != nil
+            let bootstrap = try NIOClientTCPBootstrap(ClientBootstrap(group: group), tls: NIOSSLClientTLSProvider(context: sslContext,
+                                                                                                          serverHostname: isSocketAddress ? nil : host))
 
             upgradeResult = try await bootstrap
                 .enableTLS()
